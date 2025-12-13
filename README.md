@@ -19,7 +19,7 @@ But how do we encourage people to run these nodes?
 
 Qubic Network Guardians rewards node operators for keeping their nodes online, synced, and serving accurate data.
 
-<img width="745" height="565" alt="image" src="https://github.com/user-attachments/assets/aacaf0f8-b970-46e9-bc9e-17564d4dd78b" />
+<img width="745" height="565" alt="image" src="https://github.com/user-attachments/assets/a2a57dcd-c6e3-43b7-b91a-e59a646259d6" />
 
 
 ---
@@ -29,7 +29,7 @@ Qubic Network Guardians rewards node operators for keeping their nodes online, s
 ### 1. Set Up Your Node
 
 Configure your bob or core-lite with:
-- **Operator Seed** - Your unique identity (same format as Qubic wallet)
+- **Operator Seed** - Your unique identity (55 lowercase letters, same as Qubic wallet seed)
 - **Node Name** - A display name for the leaderboard (optional, 3-20 characters)
 
 ```json
@@ -38,6 +38,8 @@ Configure your bob or core-lite with:
   "node-name": "CryptoKing"
 }
 ```
+
+> **Note:** Config field names are preliminary and may change to align with codebase during implementation.
 
 ### 2. Get Discovered
 
@@ -53,16 +55,14 @@ The checker service monitors your node and awards points for:
 
 | Metric | Weight | What It Measures |
 |--------|--------|------------------|
-| **Uptime** | 40% | Is your node responding? |
+| **Uptime** | 50% | Is your node responding? |
 | **Sync Status** | 30% | Is your node up to date? |
-| **Data Accuracy** | 20% | Does your node have correct data? |
-| **Contribution** | 10% | Peer count, latency, features |
+| **Data Accuracy** | 20% | Does your node return correct data? |
 
 ### 4. Climb the Leaderboard
 
-<img width="900" height="480" alt="image" src="https://github.com/user-attachments/assets/fd980403-4085-4d6c-bf3d-a1222e02dc17" />
+<img width="900" height="480" alt="image" src="https://github.com/user-attachments/assets/389b2f58-7094-40d1-98d9-a6109a27e03e" />
 
-Total Guardians: 847 | Network Coverage: 23 countries
 ### 5. Earn Rewards
 
 QU rewards distributed proportionally based on your score each epoch:
@@ -119,14 +119,19 @@ Rewards are sent directly to your operator identity address at the end of each e
 
 ## Scoring Details
 
-### Uptime (40% of score)
+### Uptime (50% of score)
 
-Your node is checked every 5 minutes. Each successful response = 1 point.
+Your node is checked at randomized intervals.
 
 ```
-Maximum daily points: 288
-Daily uptime score = (successful_checks / 288) × 100
+Daily uptime score = (successful_checks / expected_checks) × 100
 ```
+
+**Distributed Monitoring:**
+- Monitor agents run across **multiple datacenters** worldwide
+- If one agent can't reach your node, another agent retries from a different location
+- Prevents false negatives from regional network issues
+- Check timing is randomized
 
 ### Sync Status (30% of score)
 
@@ -143,23 +148,25 @@ How close is your node to the current network tick?
 
 ### Data Accuracy (20% of score)
 
-Your node receives random data challenges daily. You must return correct hashes for historical ticks.
+Verifies that your node reports correct blockchain state.
+
+**How it works:**
+1. During each uptime check, the checker requests `RespondNodeInfo` from your node
+2. Your node responds with its current `tick` and `epoch`
+3. Checker compares these values against trusted sources (computors, verified nodes)
+4. If values match within tolerance → accurate
+
+**What's checked (both bob and core-lite):**
+
+| Field | Tolerance | Description |
+|-------|-----------|-------------|
+| `epoch` | Exact match | Must match current network epoch |
+| `tick` | ±10 ticks | Your processed tick vs network tick |
 
 ```
-Daily challenges: 10
-Points per correct answer: 10
-Maximum daily points: 100
+Check frequency: Once per uptime check
+Score: 100% if accurate, 0% if mismatch
 ```
-
-### Network Contribution (10% of score)
-
-| Factor | Points |
-|--------|--------|
-| Accepts incoming connections | +20 |
-| 5+ peer connections | +10 |
-| 10+ peer connections | +20 |
-| REST API available | +10 |
-| Full history available | +15 |
 
 ---
 
@@ -167,8 +174,7 @@ Maximum daily points: 100
 
 Each node gets a public profile page showing:
 
-<img width="700" height="620" alt="image" src="https://github.com/user-attachments/assets/6f082f06-ecd8-41d7-822f-09724e93b3ba" />
-
+<img width="700" height="620" alt="image" src="https://github.com/user-attachments/assets/9fe066f8-56aa-4fd7-a0c1-c46231121a4b" />
 
 ---
 
@@ -186,11 +192,23 @@ The dashboard also shows overall network health:
 
 ## Minimum Requirements for Rewards
 
-To be eligible for epoch rewards:
+To be eligible for epoch rewards, your node must meet **all** thresholds:
 
-1. Node online for at least **24 hours** during the epoch
-2. Responded to at least **50%** of health checks
-3. Passed at least **1 data challenge**
+| Requirement | Threshold |
+|-------------|-----------|
+| Node uptime | ≥ 70% of epoch |
+| Data accuracy rate | ≥ 80% |
+
+Nodes failing any threshold receive **zero rewards** for that epoch, regardless of their score.
+
+---
+
+## Smart Contract & Funding
+
+| Phase | Approach |
+|-------|----------|
+| **Short-term Launch** | Go live without smart contract first. Initial reward pot funded by donations and sponsorships. |
+| **Long-term Goal** | Smart contract holds reward pot, funded by computors (similar to Qearn/CCF model). SC retrieves node stats from Network Guardians service via Operator Message (OM). |
 
 ---
 
@@ -201,9 +219,31 @@ We take fair play seriously:
 | Measure | Description |
 |---------|-------------|
 | **Signed Responses** | Every response cryptographically signed with your seed |
-| **IP Limits** | Maximum 3 nodes per IP address |
-| **Random Challenges** | Data challenges use unpredictable historical ticks |
-| **Cross-Verification** | Responses compared against known-good sources |
+| **One IP = One Node** | Only one node per IP address is eligible for rewards |
+| **Cross-Verification** | Data responses compared against known-good sources |
+| **Relay Detection** | Cryptographic identity binding prevents proxy/relay nodes (see below) |
+
+### Relay/Proxy Node Detection
+
+A relay node is a lightweight server that forwards requests to a real node without doing actual work. We prevent this using cryptographic identity binding:
+
+**Cryptographic Identity Binding**
+- Every `RespondNodeInfo` is signed with the operator's private key (FourQ/SchnorrQ)
+- Signature computed: `sign(privateKey, K12(response_data))`
+- Response includes `challenge` (echoed from request) + `timestamp` (milliseconds)
+- Relay cannot sign without the operator's seed
+- If relay forwards to real node, the signature is from the real node's identity — not the relay's claimed identity
+
+**Why Relays Fail:**
+| Attack | Why It Fails |
+|--------|--------------|
+| Forward requests to real node | Signature belongs to real node's identity, not relay's claimed identity |
+| Cache responses | Challenge mismatch (unique per request) |
+
+**Penalties:**
+- First detection: Warning, node flagged for increased monitoring
+- Confirmed relay: Node blacklisted, operator identity banned for current epoch
+- Repeat offenders: Permanent ban from rewards program
 
 ---
 
@@ -211,7 +251,7 @@ We take fair play seriously:
 
 ### Step 1: Generate Your Seed
 
-Use any Qubic wallet to generate a new seed, or create one specifically for your node.
+Use any Qubic wallet to generate a new seed, or create one specifically for your node. You can create a wallet at [wallet.qubic.org](https://wallet.qubic.org).
 
 > **Important:** Keep your seed safe! It's both your identity and your reward address.
 
@@ -250,7 +290,7 @@ Visit `guardians.qubic.org/node/{your-identity}` to see your stats.
 A: No. Core-lite nodes are discovered through P2P crawling. Bob nodes automatically announce themselves to the checker on startup.
 
 **Q: Can I run multiple nodes?**
-A: Yes, but each needs a unique seed. Maximum 3 nodes per IP address.
+A: Only one node per IP address is eligible for rewards. If you have multiple IPs (e.g., different servers), each can run one eligible node with a unique seed.
 
 **Q: What if my node goes offline?**
 A: Your uptime score decreases, but there's no permanent penalty. Get back online and recover.
@@ -262,38 +302,10 @@ A: Yes, update your config and restart. The new name appears on the next check.
 A: At the end of each epoch (Wednesday 12PM UTC), sent directly to your operator identity.
 
 **Q: What's the reward pool size?**
-A: Announced each epoch, depends on network growth and community allocation.
+A: Announced each epoch. Initially funded by donations/sponsorships. Long-term goal is a smart contract funded by computors (similar to Qearn/CCF).
 
 **Q: Is the code open source?**
 A: Yes, both the node implementations and scoring algorithm are open source.
-
----
-
-## Implementation Roadmap
-
-### Phase 1: Identity & Discovery
-- Add operator-seed and node-name configuration
-- Implement node info protocol
-- Build checker crawler
-- Launch basic leaderboard
-
-### Phase 2: Scoring System
-- Implement uptime monitoring
-- Add sync status tracking
-- Build data challenge system
-- Launch full leaderboard with profiles
-
-### Phase 3: Rewards
-- Epoch snapshot automation
-- Reward distribution system
-- Historical tracking
-- Notification system
-
-### Phase 4: Polish
-- Mobile-friendly dashboard
-- Geographic diversity map
-- Performance optimizations
-- Community features
 
 ---
 
@@ -332,14 +344,10 @@ struct RequestNodeInfo {
 ```cpp
 struct RespondNodeInfo {
     // Node metadata
-    uint8_t  nodeType;           // 0=bob, 1=core-lite, 2=full-node
-    uint8_t  version[3];         
+    uint8_t  nodeType;           // 0=bob, 1=core-lite
+    uint8_t  version[3];
     uint16_t epoch;              // Current epoch
     uint32_t tick;               // Current processed tick
-    uint32_t latestNetworkTick;  // Latest tick seen on network
-    uint32_t uptime;             // Seconds since node start
-    uint16_t peerCount;          // Number of connected peers
-    uint16_t capabilities;       // Feature flags (see below)
 
     // Identity
     uint8_t  operatorIdentity[32];  // Public key (m256i)
@@ -347,16 +355,9 @@ struct RespondNodeInfo {
 
     // Verification
     uint32_t challenge;          // Echo of request challenge
-    uint64_t timestamp;          // Unix timestamp of response
-    uint8_t  signature[64];      // Signature over response
+    uint64_t timestamp;          // Unix timestamp (milliseconds) of response
+    uint8_t  signature[64];      // FourQ/SchnorrQ signature over all above fields
 };
-
-// Capability flags
-#define CAP_TCP_SERVER    0x0001  // Accepts TCP connections
-#define CAP_REST_API      0x0002  // REST API available
-#define CAP_FULL_HISTORY  0x0004  // Has historical tick data
-#define CAP_LOG_EVENTS    0x0008  // Indexes logging events
-#define CAP_ASSETS        0x0010  // Indexes asset data
 ```
 
 **Signature computation:**
@@ -369,36 +370,6 @@ KangarooTwelve(
     32
 );
 sign(operatorPrivateKey, digest, response.signature);
-```
-
-#### REQUEST_DATA_CHALLENGE (Type 202)
-
-```cpp
-struct RequestDataChallenge {
-    uint32_t tickNumber;     // Target tick
-    uint8_t  challengeType;  // Type of data requested
-    uint8_t  reserved[3];
-    uint32_t nonce;          // Random nonce
-};
-
-// Challenge types
-#define CHALLENGE_TICK_DIGEST     0  // K12 hash of TickData
-#define CHALLENGE_TX_COUNT        1  // Number of transactions in tick
-#define CHALLENGE_VOTE_DIGEST     2  // K12 hash of aggregated votes
-```
-
-#### RESPOND_DATA_CHALLENGE (Type 203)
-
-```cpp
-struct RespondDataChallenge {
-    uint32_t tickNumber;
-    uint8_t  challengeType;
-    uint8_t  success;           // 1=have data, 0=don't have
-    uint8_t  reserved[2];
-    uint32_t nonce;             // Echo of request nonce
-    uint8_t  responseData[32];  // Hash or count (zero-padded)
-    uint8_t  signature[64];     // Signed response
-};
 ```
 
 ---
@@ -422,36 +393,9 @@ Returns signed node information.
   "version": "1.2.3",
   "epoch": 140,
   "tick": 18500000,
-  "latestNetworkTick": 18500002,
-  "uptime": 86400,
-  "peerCount": 4,
-  "capabilities": ["tcp_server", "rest_api", "log_events"],
   "operatorIdentity": "ABCDEF...60chars",
   "challenge": "abc123...",
-  "timestamp": 1699900000,
-  "signature": "base64..."
-}
-```
-
-#### POST /v1/dataChallenge
-
-**Request:**
-```json
-{
-  "tickNumber": 18400000,
-  "challengeType": "tick_digest",
-  "nonce": "random32bytes..."
-}
-```
-
-**Response:**
-```json
-{
-  "tickNumber": 18400000,
-  "challengeType": "tick_digest",
-  "success": true,
-  "responseData": "abc123...32bytes",
-  "nonce": "random32bytes...",
+  "timestamp": 1699900000000,
   "signature": "base64..."
 }
 ```
@@ -497,16 +441,14 @@ Returns signed node information.
   "rank": 127,
   "totalScore": 45223,
   "breakdown": {
-    "uptime": 18000,
-    "sync": 13500,
-    "accuracy": 9000,
-    "contribution": 4723
+    "uptime": 22612,
+    "sync": 13567,
+    "accuracy": 9044
   },
   "currentStatus": {
     "online": true,
     "tick": 18500000,
     "ticksBehind": 2,
-    "peerCount": 6,
     "lastCheck": "2024-01-15T12:00:00Z"
   },
   "history": [
@@ -548,8 +490,207 @@ Returns signed node information.
 
 ## C. Checker Service Architecture
 
-<img width="750" height="700" alt="image" src="https://github.com/user-attachments/assets/6850d633-6fde-4935-bb55-0d42f1ecc522" />
+<img width="850" height="780" alt="image" src="https://github.com/user-attachments/assets/f1ec9d1a-b229-41aa-847d-054da0510f47" />
 
+
+### Agent Synchronization
+
+**Coordinator responsibilities:**
+- Assigns nodes to agents (load balancing)
+- Randomizes check timing per node (not predictable)
+- Handles retry logic: if Agent A fails to reach node, Agent B retries
+- Aggregates results from multiple agents
+- Resolves conflicts (e.g., Agent A says online, Agent B says offline → majority wins)
+
+**Retry policy:**
+```
+1. Agent A checks node → timeout/failure
+2. Coordinator assigns retry to Agent B (different datacenter)
+3. Agent B checks node → success/failure
+4. If still failing, Agent C retries (third datacenter)
+5. After 3 failed attempts from different locations → mark as offline
+```
+
+**Scoring:** If any attempt succeeds, the check passes (no penalty). Only 3 consecutive failures from different locations counts as failed check. This prevents penalizing nodes for regional network issues outside their control.
+
+**Consistency:**
+- All agents sync to same coordinator database
+- Check assignments use distributed locking to prevent duplicates
+- Results timestamped with agent ID for audit trail
+
+### Database Schema (v1)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              ERM DIAGRAM                                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│    operators     │       │      nodes       │       │     agents       │
+├──────────────────┤       ├──────────────────┤       ├──────────────────┤
+│ *operator_id PK  │◄──────│  operator_id FK  │       │ *agent_id PK     │
+│  identity UQ     │       │ *node_id PK      │       │  name            │
+│  public_key      │       │  ip_address UQ   │       │  datacenter      │
+│  created_at      │       │  node_type       │       │  region          │
+│  is_banned       │       │  node_name       │       │  is_active       │
+│  ban_reason      │       │  version         │       │  last_heartbeat  │
+│  ban_expires     │       │  first_seen      │       └────────┬─────────┘
+└──────────────────┘       │  last_seen       │                │
+                           │  is_active       │                │
+                           │  is_banned       │                │
+┌──────────────────┐       └────────┬─────────┘                │
+│      epochs      │                │                          │
+├──────────────────┤                │                          │
+│ *epoch_number PK │       ┌────────┴────────┐                 │
+│  start_tick      │       │                 │                 │
+│  end_tick        │       ▼                 ▼                 │
+│  start_time      │  ┌───────────────┐ ┌───────────────┐      │
+│  end_time        │  │ uptime_checks │ │  sync_checks  │      │
+│  reward_pool     │  ├───────────────┤ ├───────────────┤      │
+│  status          │  │ *check_id PK  │ │ *check_id PK  │      │
+└────────┬─────────┘  │  node_id FK   │ │  node_id FK   │      │
+         │            │  agent_id FK ─┼─┼► agent_id FK ─┼──────┘
+         │            │  epoch FK ◄───┼─┼─ epoch FK     │
+         │            │  timestamp    │ │  timestamp    │
+         │            │  success      │ │  current_tick │
+         │            │  response_ms  │ │  network_tick │
+         │            │  retry_count  │ │  ticks_behind │
+         │            │  data_accurate│ │  sync_score   │
+         │            │  error_msg    │ └───────────────┘
+         │            └───────────────┘
+         │
+         ▼
+┌──────────────────┐       ┌──────────────────┐
+│  epoch_scores    │       │     rewards      │
+├──────────────────┤       ├──────────────────┤
+│ *score_id PK     │       │ *reward_id PK    │
+│  node_id FK      │       │  node_id FK      │
+│  epoch FK        │       │  epoch FK        │
+│  uptime_score    │       │  score_id FK     │◄───┐
+│  sync_score      │       │  amount_qu       │    │
+│  accuracy_score  │       │  share_percent   │    │
+│  total_score     │───────│  tx_hash         │    │
+│  rank            │       │  status          │    │
+│  meets_uptime    │       │  paid_at         │    │
+│  meets_accuracy  │───────┴──────────────────┘    │
+│  calculated_at   │                               │
+└──────────────────┴───────────────────────────────┘
+```
+
+**Table Definitions:**
+
+```sql
+-- Epochs: Track each epoch period
+CREATE TABLE epochs (
+    epoch_number    INT PRIMARY KEY,
+    start_tick      BIGINT NOT NULL,
+    end_tick        BIGINT,
+    start_time      TIMESTAMP NOT NULL,
+    end_time        TIMESTAMP,
+    reward_pool     BIGINT DEFAULT 0,        -- Total QU for this epoch
+    status          VARCHAR(20) DEFAULT 'active'  -- active, completed, paying, paid
+);
+
+-- Operators: Node operators identified by their Qubic identity
+CREATE TABLE operators (
+    operator_id     SERIAL PRIMARY KEY,
+    identity        CHAR(60) UNIQUE NOT NULL, -- Qubic identity (60 chars)
+    public_key      BYTEA NOT NULL,           -- 32-byte public key
+    created_at      TIMESTAMP DEFAULT NOW(),
+    is_banned       BOOLEAN DEFAULT FALSE,
+    ban_reason      TEXT,
+    ban_expires     TIMESTAMP
+);
+
+-- Nodes: Individual nodes being monitored
+CREATE TABLE nodes (
+    node_id         SERIAL PRIMARY KEY,
+    operator_id     INT REFERENCES operators(operator_id),
+    ip_address      INET UNIQUE NOT NULL,     -- One IP = One Node
+    node_type       VARCHAR(20) NOT NULL,     -- 'bob', 'core-lite'
+    node_name       VARCHAR(20),
+    version         VARCHAR(20),
+    first_seen      TIMESTAMP DEFAULT NOW(),
+    last_seen       TIMESTAMP,
+    is_active       BOOLEAN DEFAULT TRUE,
+    is_banned       BOOLEAN DEFAULT FALSE
+);
+
+-- Agents: Distributed monitoring agents
+CREATE TABLE agents (
+    agent_id        SERIAL PRIMARY KEY,
+    name            VARCHAR(50) NOT NULL,
+    datacenter      VARCHAR(50) NOT NULL,
+    region          VARCHAR(20) NOT NULL,     -- 'US', 'EU', 'ASIA', etc.
+    is_active       BOOLEAN DEFAULT TRUE,
+    last_heartbeat  TIMESTAMP
+);
+
+-- Uptime Checks: Record of each uptime check (includes data accuracy)
+CREATE TABLE uptime_checks (
+    check_id        BIGSERIAL PRIMARY KEY,
+    node_id         INT REFERENCES nodes(node_id),
+    agent_id        INT REFERENCES agents(agent_id),
+    epoch           INT REFERENCES epochs(epoch_number),
+    timestamp       TIMESTAMP NOT NULL,
+    success         BOOLEAN NOT NULL,
+    response_ms     INT,                      -- Response time in ms
+    retry_count     SMALLINT DEFAULT 0,       -- How many retries needed
+    data_accurate   BOOLEAN,                  -- Did returned data match known-good sources?
+    error_msg       TEXT                      -- Error message if failed
+);
+
+-- Sync Checks: Node synchronization status
+CREATE TABLE sync_checks (
+    check_id        BIGSERIAL PRIMARY KEY,
+    node_id         INT REFERENCES nodes(node_id),
+    agent_id        INT REFERENCES agents(agent_id),
+    epoch           INT REFERENCES epochs(epoch_number),
+    timestamp       TIMESTAMP NOT NULL,
+    current_tick    BIGINT NOT NULL,          -- Node's current tick
+    network_tick    BIGINT NOT NULL,          -- Network's current tick
+    ticks_behind    INT NOT NULL,             -- Difference
+    sync_score      SMALLINT NOT NULL         -- Score based on ticks behind (0-100)
+);
+
+-- Epoch Scores: Aggregated scores per node per epoch
+CREATE TABLE epoch_scores (
+    score_id        BIGSERIAL PRIMARY KEY,
+    node_id         INT REFERENCES nodes(node_id),
+    epoch           INT REFERENCES epochs(epoch_number),
+    uptime_score    INT NOT NULL,             -- Points from uptime checks
+    sync_score      INT NOT NULL,             -- Points from sync status
+    accuracy_score  INT NOT NULL,             -- Points from data accuracy checks
+    total_score     INT NOT NULL,             -- Weighted total
+    rank            INT,                      -- Rank in this epoch
+    meets_uptime    BOOLEAN NOT NULL,         -- Met ≥70% uptime requirement
+    meets_accuracy  BOOLEAN NOT NULL,         -- Met ≥80% accuracy requirement
+    calculated_at   TIMESTAMP DEFAULT NOW(),
+    UNIQUE(node_id, epoch)
+);
+
+-- Rewards: Payout records
+CREATE TABLE rewards (
+    reward_id       BIGSERIAL PRIMARY KEY,
+    node_id         INT REFERENCES nodes(node_id),
+    epoch           INT REFERENCES epochs(epoch_number),
+    score_id        BIGINT REFERENCES epoch_scores(score_id),
+    amount_qu       BIGINT NOT NULL,          -- Reward amount in QU
+    share_percent   DECIMAL(10,6),            -- Percentage of pool
+    tx_hash         CHAR(64),                 -- Transaction hash when paid
+    status          VARCHAR(20) DEFAULT 'pending', -- pending, paid, failed
+    paid_at         TIMESTAMP,
+    UNIQUE(node_id, epoch)
+);
+
+-- Indexes for common queries
+CREATE INDEX idx_uptime_node_epoch ON uptime_checks(node_id, epoch);
+CREATE INDEX idx_uptime_timestamp ON uptime_checks(timestamp);
+CREATE INDEX idx_sync_node_epoch ON sync_checks(node_id, epoch);
+CREATE INDEX idx_scores_epoch_rank ON epoch_scores(epoch, rank);
+CREATE INDEX idx_nodes_ip ON nodes(ip_address);
+CREATE INDEX idx_operators_identity ON operators(identity);
+```
 
 ---
 
@@ -559,7 +700,7 @@ Returns signed node information.
 
 ```json
 {
-  "operator-seed": "55characterlowercaseseed...",
+  "operator-seed": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabc",
   "node-name": "MyNodeName",
   "run-server": true,
   "server-port": 21841,
@@ -572,7 +713,7 @@ Returns signed node information.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `operator-seed` | Yes | 55-char lowercase seed for identity |
+| `operator-seed` | Yes | 55 lowercase letters for identity |
 | `node-name` | No | Display name (3-20 chars, alphanumeric + underscore) |
 | `run-server` | Yes | Must be `true` so checker can connect back |
 | `server-port` | No | TCP port (default: 21841) |
@@ -600,22 +741,27 @@ static char nodeName[21] = "MyCoreLiteNode";
 bool validateNodeInfoResponse(
     const RequestNodeInfo& req,
     const RespondNodeInfo& resp,
-    uint64_t currentTime,
-    uint32_t currentNetworkTick
+    uint64_t currentTimeMs,
+    uint32_t currentNetworkTick,
+    uint16_t currentEpoch
 ) {
-    // 1. Challenge must match
+    // 1. Challenge must match (replay protection)
     if (resp.challenge != req.challenge)
         return false;
 
-    // 2. Timestamp must be recent (within 60 seconds)
-    if (abs((int64_t)currentTime - (int64_t)resp.timestamp) > 60)
+    // 2. Timestamp must be recent (replay protection)
+    if (abs((int64_t)currentTimeMs - (int64_t)resp.timestamp) > 60000)
         return false;
 
-    // 3. Tick must be plausible
+    // 3. Epoch must match current network epoch
+    if (resp.epoch != currentEpoch)
+        return false;
+
+    // 4. Tick must be plausible (within tolerance of network tick)
     if (resp.tick > currentNetworkTick + 10)
         return false;
 
-    // 4. Verify signature
+    // 5. Verify FourQ signature
     uint8_t digest[32];
     KangarooTwelve(
         &resp,
@@ -623,11 +769,10 @@ bool validateNodeInfoResponse(
         digest,
         32
     );
-
     if (!verify(resp.operatorIdentity, digest, resp.signature))
         return false;
 
-    // 5. Validate node name (if present)
+    // 6. Validate node name (if present)
     if (resp.nodeName[0] != '\0') {
         size_t len = strnlen(resp.nodeName, 20);
         if (len < 3) return false;
@@ -653,3 +798,4 @@ permission and retains its original MIT license.
 
 The MIT licensed code is from the following sources:
 - [uint128_t](https://github.com/calccrypto/uint128_t)
+
